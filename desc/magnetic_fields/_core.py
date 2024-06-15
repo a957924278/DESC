@@ -1718,9 +1718,12 @@ class OmnigenousField(Optimizable, IOAble):
         self._N_x = setdefault(N_x, self.N_x)
 
         # change well parameters and basis
-        rho = (  # Chebyshev-Gauss-Lobatto nodes
-            1 - np.cos(np.arange(old_L_B // 2, old_L_B + 1, 1) * np.pi / old_L_B)
-        ) / 2
+        if old_L_B == 0: # Chebyshev-Gauss-Lobatto nodes
+            rho = np.array([0])
+        else:
+            rho = (
+                1 - np.cos(np.arange(old_L_B // 2, old_L_B + 1, 1) * np.pi / old_L_B)
+            ) / 2
         nodes = np.array([rho, np.zeros_like(rho), np.zeros_like(rho)]).T
 
         transform_fwd = self.B_basis.evaluate(nodes)
