@@ -528,7 +528,11 @@ class Omnigenity(_Objective):
         Toroidal resolution of Boozer transformation. Default = 2 * eq.N.
     eta_weight : float, optional
         Magnitude of relative weight as a function of η:
-        w(η) = (`eta_weight` + 1) / 2 + (`eta_weight` - 1) / 2 * cos(η)
+        w(η) = `eta_weight` + (1-`eta_weight`)*(cos(2*η)+1)/2
+        Default value of 1 weights all nodes equally.
+    alpha_weight : float, optional
+        Magnitude of relative weight as a function of α:
+        w(α) = `alpha_weight` + (1-`alpha_weight`)*(1-cos(α))/2
         Default value of 1 weights all nodes equally.
     eq_fixed: bool, optional
         Whether the Equilibrium `eq` is fixed or not.
@@ -569,6 +573,7 @@ class Omnigenity(_Objective):
         M_booz=None,
         N_booz=None,
         eta_weight=1,
+        alpha_weight=1,
         eq_fixed=False,
         field_fixed=False,
         name="omnigenity",
@@ -584,6 +589,7 @@ class Omnigenity(_Objective):
         self.M_booz = M_booz
         self.N_booz = N_booz
         self.eta_weight = eta_weight
+        self.alpha_weight = alpha_weight
         self._eq_fixed = eq_fixed
         self._field_fixed = field_fixed
         if not eq_fixed and not field_fixed:
@@ -783,13 +789,13 @@ class Omnigenity(_Objective):
                 transforms=constants["eq_transforms"],
                 profiles=constants["eq_profiles"],
             )
-
+        iota = jnp.mean(eq_data["iota"])
+        
         # compute field data
+        M,N = constants["helicity"]
         if self._field_fixed:
             field_data = constants["field_data"]
             # update theta_B and zeta_B with new iota from the equilibrium
-            M, N = constants["helicity"]
-            iota = jnp.mean(eq_data["iota"])
             # see comment in desc.compute._omnigenity for the explanation of these
             # wheres
             mat_OP = jnp.array(
@@ -835,9 +841,12 @@ class Omnigenity(_Objective):
             constants["eq_transforms"]["B"].basis.evaluate(nodes), eq_data["|B|_mn"]
         )
         omnigenity_error = B_eta_alpha - field_data["|B|"]
-        weights = (self.eta_weight + 1) / 2 + (self.eta_weight - 1) / 2 * jnp.cos(
-            field_data["eta"]
-        )
+        alpha_fieldline = field_data["alpha"]*N/(1-iota/N)
+        def alpha_weight(alpha):
+            return jnp.where((alpha>0) & (alpha<2*jnp.pi),\
+                self.alpha_weight+(1-self.alpha_weight)*(1-jnp.cos(alpha))/2, self.alpha_weight)
+        weights = (self.eta_weight+(1-self.eta_weight)*(jnp.cos(2*field_data["eta"])+1)/2)*\
+            alpha_weight(alpha_fieldline)
         return omnigenity_error * weights
 
 

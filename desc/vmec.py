@@ -1593,6 +1593,7 @@ class VMECIO:
                 )
 
         f.write("/")
+        f.write("\n&END")
         f.close()
         return None
 

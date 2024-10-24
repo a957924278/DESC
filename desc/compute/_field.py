@@ -3420,6 +3420,48 @@ def _max_tz_modB(params, transforms, profiles, data, **kwargs):
 
 
 @register_compute_fun(
+    name="<|B|>_r",
+    label="\\partial_r <|B|>",
+    units="T",
+    units_long="Tesla",
+    description="Radial derivative of flux surface average field strength",
+    dim=1,
+    params=[],
+    transforms={"grid": []},
+    profiles=[],
+    coordinates="r",
+    data=["<|B|>", "rho"],
+    resolution_requirement="tz",
+)
+def _B_ave_r(params, transforms, profiles, data, **kwargs):
+    drho = jnp.gradient(transforms["grid"].compress(data["rho"]))
+    dB_ave = jnp.gradient(transforms["grid"].compress(data["<|B|>"]))
+    data["<|B|>_r"] = transforms["grid"].expand(jnp.divide(dB_ave, drho))
+    return data
+
+@register_compute_fun(
+    name="mirror_s",
+    label="\\partial_s \\frac{(B_{max}-B_{ave})}{B_{ave}}",
+    units="~",
+    units_long="None",
+    description="Flat mirror on each flux surface,derivative with respect to s",
+    dim=1,
+    params=[],
+    transforms={"grid": []},
+    profiles=[],
+    coordinates="r",
+    data=["max_tz |B|", "<|B|>"],
+    resolution_requirement="tz",
+)
+def _mirror_s(params, transforms, profiles, data, **kwargs):
+    B_max = transforms["grid"].compress(data["max_tz |B|"])
+    B_ave = transforms["grid"].compress(data["<|B|>"])
+    mirror_s = jnp.divide(jnp.gradient(B_max - B_ave), jnp.gradient(B_ave))
+    data["mirror_s"] = transforms["grid"].expand(mirror_s)
+    return data
+
+
+@register_compute_fun(
     name="mirror ratio",
     label="(B_{max} - B_{min}) / (B_{min} + B_{max})",
     units="~",
