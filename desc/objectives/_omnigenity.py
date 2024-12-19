@@ -843,9 +843,7 @@ class Omnigenity(_Objective):
         )
         B_eta_alpha = jnp.moveaxis(B_eta_alpha, 0, 1).flatten(order="F")
         omnigenity_error = B_eta_alpha - field_data["|B|"]
-        weights = (self.eta_weight + 1) / 2 + (self.eta_weight - 1) / 2 * jnp.cos(
-            field_data["eta"]
-        )
+        weights = self.eta_weight+(1-self.eta_weight)*(jnp.cos(2*field_data["eta"])+1)/2
         return omnigenity_error * weights
 
 
