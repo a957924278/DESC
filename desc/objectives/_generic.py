@@ -254,6 +254,101 @@ class LinearObjectiveFromUser(_FixedObjective):
         return f
 
 
+class ParamsObjectiveFromUser(_FixedObjective):
+    """Wrap a user defined objective function.
+
+    The user supplied function should take one argument, ``params``, which is a
+    dictionary of parameters of an Optimizable "thing".
+
+    The function should be JAX traceable and differentiable, and should return a single
+    JAX array. The source code of the function must be visible to the ``inspect`` module
+    for parsing.
+
+    Parameters
+    ----------
+    fun : callable
+        Custom objective function.
+    thing : Optimizable
+        Object whose degrees of freedom are being constrained.
+
+    """
+
+    __doc__ = __doc__.rstrip() + collect_docs(
+        target_default="``target=0``.", bounds_default="``target=0``."
+    )
+
+    _scalar = False
+    _linear = False
+    _fixed = True
+    _units = "(Unknown)"
+    _print_value_fmt = "Custom objective value: "
+
+    def __init__(
+        self,
+        fun,
+        thing,
+        target=None,
+        bounds=None,
+        weight=1,
+        normalize=False,
+        normalize_target=False,
+        name="custom",
+        jac_chunk_size=None,
+    ):
+        if target is None and bounds is None:
+            target = 0
+        self._fun = fun
+        super().__init__(
+            things=thing,
+            target=target,
+            bounds=bounds,
+            weight=weight,
+            normalize=normalize,
+            normalize_target=normalize_target,
+            name=name,
+            jac_chunk_size=jac_chunk_size,
+        )
+
+    def build(self, use_jit=False, verbose=1):
+        """Build constant arrays.
+
+        Parameters
+        ----------
+        use_jit : bool, optional
+            Whether to just-in-time compile the objective and derivatives.
+        verbose : int, optional
+            Level of output.
+
+        """
+        thing = self.things[0]
+
+        import jax
+
+        self._dim_f = jax.eval_shape(self._fun, thing.params_dict).size
+
+        super().build(use_jit=use_jit, verbose=verbose)
+
+    def compute(self, params, constants=None):
+        """Compute fixed degree of freedom errors.
+
+        Parameters
+        ----------
+        params : dict
+            Dictionary of equilibrium degrees of freedom, eg thing.params_dict
+        constants : dict
+            Dictionary of constant data, eg transforms, profiles etc. Defaults to
+            self.constants
+
+        Returns
+        -------
+        f : ndarray
+            Fixed degree of freedom errors.
+
+        """
+        f = self._fun(params)
+        return f
+
+
 class ObjectiveFromUser(_Objective):
     """Wrap a user defined objective function.
 
