@@ -1380,12 +1380,6 @@ class OmniSymmetry(_Objective):
         Magnitude of relative weight as a function of η:
         w(η) = (`eta_weight` + 1) / 2 + (`eta_weight` - 1) / 2 * cos(η)
         Default value of 1 weights all nodes equally.
-    eq_fixed: bool, optional
-        Whether the Equilibrium `eq` is fixed or not.
-        If True, the equilibrium is fixed and its values are precomputed, which saves on
-        computation time during optimization and only ``field`` is allowed to change.
-        If False, the equilibrium is allowed to change during the optimization and its
-        associated data are re-computed at every iteration (Default).
     field_fixed: bool, optional
         Whether the OmnigenousField `field` is fixed or not.
         If True, the field is fixed and its values are precomputed, which saves on
@@ -1399,8 +1393,8 @@ class OmniSymmetry(_Objective):
         target_default="``target=0``.", bounds_default="``target=0``."
     )
 
-    _units = "(T)"
-    _print_value_fmt = "New Omnigenity error: "
+    _units = "rad"
+    _print_value_fmt = "Omni-Mapping Symmetry error: "
 
     def __init__(
         self,
@@ -1417,7 +1411,6 @@ class OmniSymmetry(_Objective):
         field_grid=None,
         M_booz=None,
         N_booz=None,
-        eq_fixed=False,
         name="stellarator symmetry",
         jac_chunk_size=None,
     ):
@@ -1430,11 +1423,7 @@ class OmniSymmetry(_Objective):
         self.helicity = field.helicity
         self.M_booz = M_booz
         self.N_booz = N_booz
-        self._eq_fixed = eq_fixed
-        if not eq_fixed:
-            things = [eq, field]
-        else:
-            things = [field]
+        things = [eq, field]
         super().__init__(
             things=things,
             target=target,
@@ -1459,12 +1448,8 @@ class OmniSymmetry(_Objective):
             Level of output.
 
         """
-        if self._eq_fixed:
-            eq = self._eq
-            field = self.things[0]
-        else:
-            eq = self.things[0]
-            field = self.things[1]
+        eq = self.things[0]
+        field = self.things[1]
 
         M_booz = self.M_booz or 2 * eq.M
         N_booz = self.N_booz or 2 * eq.N
@@ -1534,17 +1519,6 @@ class OmniSymmetry(_Objective):
             "helicity": self.helicity,
         }
 
-        if self._eq_fixed:
-            # precompute the eq data since it is fixed during the optimization
-            eq_data = compute_fun(
-                "desc.equilibrium.equilibrium.Equilibrium",
-                self._eq_data_keys,
-                params=self._eq.params_dict,
-                transforms=self._constants["eq_transforms"],
-                profiles=self._constants["eq_profiles"],
-            )
-            self._constants["eq_data"] = eq_data
-
         self._dim_f = field_transforms["h"].grid.num_nodes
 
         timer.stop("Precomputing transforms")
@@ -1559,12 +1533,9 @@ class OmniSymmetry(_Objective):
         Parameters
         ----------
         params_1 : dict
-            If eq_fixed=True, dictionary of field degrees of freedom,
-            eg OmnigenousField.params_dict. Otherwise, dictionary of equilibrium degrees
-            of freedom, eg Equilibrium.params_dict.
+            Dictionary of equilibrium degrees of freedom, eg Equilibrium.params_dict.
         params_2 : dict
-            If eq_fixed=False and field_fixed=False, dictionary of field degrees of
-            freedom, eg OmnigenousField.params_dict. Otherwise None.
+            Dictionary of field degrees of freedom, eg OmnigenousField.params_dict.
         constants : dict
             Dictionary of constant data, eg transforms, profiles etc. Defaults to
             self.constants
@@ -1579,23 +1550,17 @@ class OmniSymmetry(_Objective):
             constants = self.constants
 
         # sort parameters
-        if self._eq_fixed:
-            field_params = params_1
-        else:
-            eq_params = params_1
-            field_params = params_2
+        eq_params = params_1
+        field_params = params_2
 
         # compute eq data
-        if self._eq_fixed:
-            eq_data = constants["eq_data"]
-        else:
-            eq_data = compute_fun(
-                "desc.equilibrium.equilibrium.Equilibrium",
-                self._eq_data_keys,
-                params=eq_params,
-                transforms=constants["eq_transforms"],
-                profiles=constants["eq_profiles"],
-            )
+        eq_data = compute_fun(
+            "desc.equilibrium.equilibrium.Equilibrium",
+            self._eq_data_keys,
+            params=eq_params,
+            transforms=constants["eq_transforms"],
+            profiles=constants["eq_profiles"],
+        )
         iota = eq_data["iota"][-1]
         (M, N) = constants["helicity"]
 
