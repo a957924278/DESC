@@ -9,6 +9,7 @@ from desc.compute.utils import _compute as compute_fun
 from desc.grid import LinearGrid
 from desc.utils import Timer, errorif, warnif
 from desc.vmec_utils import ptolemy_linear_transform
+from desc.basis import DoubleFourierSeries
 
 from .normalization import compute_scaling_factors
 from .objective_funs import _Objective, collect_docs
@@ -1109,12 +1110,24 @@ class NewOmnigenity(_Objective):
         elif self._eq_grid is None and self._field_grid is None:
             rho = 1.0
         if self._eq_grid is None:
-            eq_grid = LinearGrid(rho=rho, M=M_booz, N=N_booz, NFP=eq.NFP, sym=True)
+            eq_grid = LinearGrid(
+                rho=rho,
+                M=2 * M_booz,
+                N=2 * N_booz,
+                NFP=eq.NFP,
+                sym=False,
+                endpoint=False,
+            )
         else:
             eq_grid = self._eq_grid
         if self._field_grid is None:
             field_grid = LinearGrid(
-                rho=rho, M=M_booz, N=M_booz, NFP=field.NFP, sym=True
+                rho=rho,
+                M=M_booz,
+                N=N_booz,
+                NFP=field.NFP,
+                sym=False,
+                endpoint=False,
             )
         else:
             field_grid = self._field_grid
@@ -1158,12 +1171,6 @@ class NewOmnigenity(_Objective):
             grid=field_grid,
         )
 
-        # compute returns points on the grid of the field (dim_f = field_grid.num_nodes)
-        # so set quad_weights to the field grid
-        # to avoid it being incorrectly set in the super build
-        w = field_grid.weights
-        w *= jnp.sqrt(field_grid.num_nodes)
-
         self._constants = {
             "eq_profiles": profiles,
             "eq_transforms": eq_transforms,
@@ -1194,19 +1201,29 @@ class NewOmnigenity(_Objective):
             )
             self._constants["field_data"] = field_data
 
+        complete_basis = DoubleFourierSeries(
+            M=M_booz,
+            N=M_booz,
+            NFP=eq.NFP,
+            sym=False,  # 禁用对称性以确保所有模式
+        )
+
+        norm = 2 ** (3 - jnp.sum((complete_basis.modes == 0), axis=1))
+
         matrix, _, idx = ptolemy_linear_transform(
-            eq_transforms["B"].basis.modes,
+            complete_basis.modes,
             helicity=(1, 0),
             NFP=eq.NFP,
         )
 
         self._constants["matrix"] = matrix
-        self._constants["idx"] = idx
-        self._constants["norm"] = 2 ** (
-            3 - jnp.sum((eq_transforms["B"].basis.modes == 0), axis=1)
-        )
+        # self._constants["idx"] = idx
+        self._constants["norm"] = norm
+        self._constants["complete_basis"] = complete_basis
 
-        self._dim_f = idx.size * eq_grid.num_rho
+        # self._dim_f = idx.size * eq_grid.num_rho
+        self._constants["idx"] = jnp.where((complete_basis.modes[:,1]!=0))
+        self._dim_f = (complete_basis.modes[:,1]!=0).sum()
 
         timer.stop("Precomputing transforms")
         if verbose > 1:
@@ -1268,11 +1285,12 @@ class NewOmnigenity(_Objective):
             )
 
         # compute field data
+        iota = eq_data["iota"][eq_grid.unique_rho_idx]
         if self._field_fixed:
             field_data = constants["field_data"]
             # update theta_B and zeta_B with new iota from the equilibrium
             M, N = constants["helicity"]
-            iota = eq_data["iota"][eq_grid.unique_rho_idx]
+            iota = iota
             theta_B, zeta_B = _omnigenity_mapping(
                 M,
                 N,
@@ -1289,7 +1307,7 @@ class NewOmnigenity(_Objective):
                 transforms=constants["field_transforms"],
                 profiles={},
                 helicity=constants["helicity"],
-                iota=eq_data["iota"][eq_grid.unique_rho_idx],
+                iota=iota,
             )
             theta_B = field_data["theta_B"]
             zeta_B = field_data["zeta_B"]
@@ -1322,30 +1340,21 @@ class NewOmnigenity(_Objective):
         )
         B_eta_alpha = jnp.moveaxis(B_eta_alpha, 0, 1).flatten(order="F")
 
-        B_mn_eta_alpha = (
+        eta_alpha_nodes = jnp.vstack(
+            [
+                jnp.ones_like(theta_B),
+                field_data["alpha"],
+                (2 * field_data["eta"] + jnp.pi) / field_grid.NFP,
+            ]
+        ).T
+
+        B_mn_eta_alpha_complete = (
             constants["norm"]
-            * (
-                constants["eq_transforms"]["B"]
-                .basis.evaluate(constants["eq_transforms"]["B"].grid.nodes)
-                .T
-                @ B_eta_alpha
-            ).T
-            / constants["eq_transforms"]["B"].grid.num_nodes
+            * (constants["complete_basis"].evaluate(eta_alpha_nodes).T @ B_eta_alpha).T
+            / len(eta_alpha_nodes)
         )
+        return B_mn_eta_alpha_complete[constants["idx"]]
 
-        B_mn_eta_alpha = (constants["matrix"] @ B_mn_eta_alpha.T)[constants["idx"]]
-
-        return B_mn_eta_alpha.T.flatten()
-
-        # B_mn_eta_alpha = (
-        #     constants["field_transforms"]["h"]
-        #     .fit(B_eta_alpha)
-        #     .reshape((constants["field_transforms"]["grid"].num_rho, -1))
-        # )
-
-        # B_mn_eta_alpha = (constants["matrix"] @ B_mn_eta_alpha.T)[constants["idx"]]
-
-        # return B_mn_eta_alpha.T.flatten()
 
 
 class OmniSymmetry(_Objective):
