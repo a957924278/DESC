@@ -1210,20 +1210,11 @@ class NewOmnigenity(_Objective):
 
         norm = 2 ** (3 - jnp.sum((complete_basis.modes == 0), axis=1))
 
-        matrix, _, idx = ptolemy_linear_transform(
-            complete_basis.modes,
-            helicity=(1, 0),
-            NFP=eq.NFP,
-        )
-
-        self._constants["matrix"] = matrix
-        # self._constants["idx"] = idx
         self._constants["norm"] = norm
         self._constants["complete_basis"] = complete_basis
 
-        # self._dim_f = idx.size * eq_grid.num_rho
-        self._constants["idx"] = jnp.where((complete_basis.modes[:,1]!=0))
-        self._dim_f = (complete_basis.modes[:,1]!=0).sum()
+        self._constants["idx"] = jnp.where((complete_basis.modes[:, 1] != 0))
+        self._dim_f = (complete_basis.modes[:, 1] != 0).sum()
 
         timer.stop("Precomputing transforms")
         if verbose > 1:
@@ -1348,13 +1339,20 @@ class NewOmnigenity(_Objective):
             ]
         ).T
 
+        weights = (
+            self.eta_weight
+            + (1 - self.eta_weight) * (jnp.cos(2 * field_data["eta"]) + 1) / 2
+        )
+
         B_mn_eta_alpha_complete = (
             constants["norm"]
-            * (constants["complete_basis"].evaluate(eta_alpha_nodes).T @ B_eta_alpha).T
+            * (
+                constants["complete_basis"].evaluate(eta_alpha_nodes).T
+                @ jnp.multiply(B_eta_alpha, weights)
+            ).T
             / len(eta_alpha_nodes)
         )
         return B_mn_eta_alpha_complete[constants["idx"]]
-
 
 
 class OmniSymmetry(_Objective):
