@@ -3053,8 +3053,24 @@ def plot_boozer_surface(
                 iota=iota,
             )
         B = data["|B|"]
-        theta_B = np.mod(data["theta_B"], 2 * np.pi)
-        zeta_B = np.mod(data["zeta_B"], 2 * np.pi / thing.NFP)
+        
+        def wrap_boozer_coordinates(zeta_B, theta_B, iota, NFP):
+            """将超出范围的 Boozer 坐标沿磁场线方向平移回主区间"""
+            zeta_period = 2 * np.pi / NFP
+
+            # 计算需要平移的周期数
+            zeta_shifts = np.floor(zeta_B / zeta_period)
+
+            # 沿着 y = iota * x 方向平移
+            zeta_B_wrapped = zeta_B - zeta_shifts * zeta_period
+            theta_B_wrapped = theta_B - zeta_shifts * iota * zeta_period
+
+            return zeta_B_wrapped, theta_B_wrapped
+
+        zeta_B, theta_B = wrap_boozer_coordinates(
+            data["zeta_B"], data["theta_B"], iota, thing.NFP
+        )
+        theta_B = np.mod(theta_B, 2 * np.pi)
 
     fig, ax = _format_ax(ax, figsize=kwargs.pop("figsize", None))
     divider = make_axes_locatable(ax)
