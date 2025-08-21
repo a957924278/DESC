@@ -52,6 +52,8 @@ from ._omnigenity import (
     QuasisymmetryBoozer,
     QuasisymmetryTripleProduct,
     QuasisymmetryTwoTerm,
+    NewOmnigenity,
+    OmniSymmetry,
 )
 from ._power_balance import FusionPower, HeatingPowerISS04
 from ._profiles import Pressure, RotationalTransform, Shear, ToroidalCurrent
@@ -103,3 +105,5 @@ from .linear_objectives import (
     FixThetaSFL,
 )
 from .objective_funs import ObjectiveFunction
+
+from .objective_funs_huber import HuberObjectiveFunction
