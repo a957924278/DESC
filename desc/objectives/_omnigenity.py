@@ -998,10 +998,6 @@ class NewOmnigenity(_Objective):
         Poloidal resolution of Boozer transformation. Default = 2 * eq.M.
     N_booz : int, optional
         Toroidal resolution of Boozer transformation. Default = 2 * eq.N.
-    eta_weight : float, optional
-        Magnitude of relative weight as a function of η:
-        w(η) = (`eta_weight` + 1) / 2 + (`eta_weight` - 1) / 2 * cos(η)
-        Default value of 1 weights all nodes equally.
     eq_fixed: bool, optional
         Whether the Equilibrium `eq` is fixed or not.
         If True, the equilibrium is fixed and its values are precomputed, which saves on
@@ -1039,7 +1035,7 @@ class NewOmnigenity(_Objective):
         field_grid=None,
         M_booz=None,
         N_booz=None,
-        eta_weight=1,
+        eta_range=1.0,
         eq_fixed=False,
         field_fixed=False,
         name="new omnigenity",
@@ -1054,7 +1050,7 @@ class NewOmnigenity(_Objective):
         self.helicity = field.helicity
         self.M_booz = M_booz
         self.N_booz = N_booz
-        self.eta_weight = eta_weight
+        self.eta_range = eta_range
         self._eq_fixed = eq_fixed
         self._field_fixed = field_fixed
         if not eq_fixed and not field_fixed:
@@ -1171,12 +1167,19 @@ class NewOmnigenity(_Objective):
             grid=field_grid,
         )
 
+        # 预计算节点索引以避免运行时布尔索引错误
+        field_nodes = field_transforms["h"].grid.nodes
+        node_idx = jnp.where(
+            jnp.abs(field_nodes[:, 1]) < (jnp.pi / 2 * self.eta_range)
+        )[0]
+
         self._constants = {
             "eq_profiles": profiles,
             "eq_transforms": eq_transforms,
             "field_transforms": field_transforms,
             "quad_weights": 1.0,
             "helicity": self.helicity,
+            "node_idx": node_idx,
         }
 
         if self._eq_fixed:
@@ -1331,24 +1334,23 @@ class NewOmnigenity(_Objective):
         )
         B_eta_alpha = jnp.moveaxis(B_eta_alpha, 0, 1).flatten(order="F")
 
+        # 使用预计算的节点索引避免运行时布尔索引错误
+        node_idx = constants["node_idx"]
+
         eta_alpha_nodes = jnp.vstack(
             [
-                jnp.ones_like(theta_B),
-                field_data["alpha"],
-                (2 * field_data["eta"] + jnp.pi) / field_grid.NFP,
+                jnp.ones_like(field_data["alpha"][node_idx]),
+                field_data["alpha"][node_idx],
+                ((2 / self.eta_range) * field_data["eta"][node_idx] + jnp.pi)
+                / field_grid.NFP,
             ]
         ).T
-
-        weights = (
-            self.eta_weight
-            + (1 - self.eta_weight) * (jnp.cos(2 * field_data["eta"]) + 1) / 2
-        )
 
         B_mn_eta_alpha_complete = (
             constants["norm"]
             * (
                 constants["complete_basis"].evaluate(eta_alpha_nodes).T
-                @ jnp.multiply(B_eta_alpha, weights)
+                @ B_eta_alpha[node_idx]
             ).T
             / len(eta_alpha_nodes)
         )
@@ -1393,6 +1395,12 @@ class OmniSymmetry(_Objective):
         computation time during optimization and only ``eq`` is allowed to change.
         If False, the field is allowed to change during the optimization and its
         associated data are re-computed at every iteration (Default).
+    eq_fixed: bool, optional
+        Whether the Equilibrium `eq` is fixed or not.
+        If True, the equilibrium is fixed and its values are precomputed, which saves on
+        computation time during optimization and only ``field`` is allowed to change.
+        If False, the equilibrium is allowed to change during the optimization and its
+        associated data are re-computed at every iteration (Default).
 
     """
 
@@ -1420,6 +1428,8 @@ class OmniSymmetry(_Objective):
         N_booz=None,
         name="stellarator symmetry",
         jac_chunk_size=None,
+        eq_fixed=False,
+        field_fixed=False,
     ):
         if target is None and bounds is None:
             target = 0
@@ -1430,7 +1440,16 @@ class OmniSymmetry(_Objective):
         self.helicity = field.helicity
         self.M_booz = M_booz
         self.N_booz = N_booz
-        things = [eq, field]
+        self._eq_fixed = eq_fixed
+        self._field_fixed = field_fixed
+        if not eq_fixed and not field_fixed:
+            things = [eq, field]
+        elif eq_fixed and not field_fixed:
+            things = [field]
+        elif field_fixed and not eq_fixed:
+            things = [eq]
+        else:
+            raise ValueError("Cannot fix both the eq and field.")
         super().__init__(
             things=things,
             target=target,
@@ -1455,8 +1474,15 @@ class OmniSymmetry(_Objective):
             Level of output.
 
         """
-        eq = self.things[0]
-        field = self.things[1]
+        if self._eq_fixed:
+            eq = self._eq
+            field = self.things[0]
+        elif self._field_fixed:
+            eq = self.things[0]
+            field = self._field
+        else:
+            eq = self.things[0]
+            field = self.things[1]
 
         M_booz = self.M_booz or 2 * eq.M
         N_booz = self.N_booz or 2 * eq.N
@@ -1526,6 +1552,17 @@ class OmniSymmetry(_Objective):
             "helicity": self.helicity,
         }
 
+        if self._eq_fixed:
+            # precompute the eq data since it is fixed during the optimization
+            eq_data = compute_fun(
+                "desc.equilibrium.equilibrium.Equilibrium",
+                self._eq_data_keys,
+                params=self._eq.params_dict,
+                transforms=self._constants["eq_transforms"],
+                profiles=self._constants["eq_profiles"],
+            )
+            self._constants["eq_data"] = eq_data
+            
         self._dim_f = field_transforms["h"].grid.num_nodes
 
         timer.stop("Precomputing transforms")
@@ -1540,9 +1577,12 @@ class OmniSymmetry(_Objective):
         Parameters
         ----------
         params_1 : dict
-            Dictionary of equilibrium degrees of freedom, eg Equilibrium.params_dict.
+            If eq_fixed=True, dictionary of field degrees of freedom,
+            eg OmnigenousField.params_dict. Otherwise, dictionary of equilibrium degrees
+            of freedom, eg Equilibrium.params_dict.
         params_2 : dict
-            Dictionary of field degrees of freedom, eg OmnigenousField.params_dict.
+            If eq_fixed=False and field_fixed=False, dictionary of field degrees of
+            freedom, eg OmnigenousField.params_dict. Otherwise None.
         constants : dict
             Dictionary of constant data, eg transforms, profiles etc. Defaults to
             self.constants
@@ -1557,17 +1597,25 @@ class OmniSymmetry(_Objective):
             constants = self.constants
 
         # sort parameters
-        eq_params = params_1
-        field_params = params_2
+        if self._eq_fixed:
+            field_params = params_1
+        elif self._field_fixed:
+            eq_params = params_1
+        else:
+            eq_params = params_1
+            field_params = params_2
 
         # compute eq data
-        eq_data = compute_fun(
-            "desc.equilibrium.equilibrium.Equilibrium",
-            self._eq_data_keys,
-            params=eq_params,
-            transforms=constants["eq_transforms"],
-            profiles=constants["eq_profiles"],
-        )
+        if self._eq_fixed:
+            eq_data = constants["eq_data"]
+        else:
+            eq_data = compute_fun(
+                "desc.equilibrium.equilibrium.Equilibrium",
+                self._eq_data_keys,
+                params=eq_params,
+                transforms=constants["eq_transforms"],
+                profiles=constants["eq_profiles"],
+            )
         iota = eq_data["iota"][-1]
         (M, N) = constants["helicity"]
 
