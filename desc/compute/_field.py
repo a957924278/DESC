@@ -3737,6 +3737,24 @@ def _kappa_n(params, transforms, profiles, data, **kwargs):
 
 
 @register_compute_fun(
+    name="bad_curvature",
+    label="\\kappa_{\\text{bad}}",
+    units="m^{-1}",
+    units_long="Inverse meters",
+    description="Bad curvature (ReLU of normal curvature)",
+    dim=1,
+    params=[],
+    transforms={},
+    profiles=[],
+    coordinates="rtz",
+    data=["kappa_n"],
+)
+def _bad_curvature(params, transforms, profiles, data, **kwargs):
+    data["bad_curvature"] = jnp.minimum(data["kappa_n"], 0)
+    return data
+
+
+@register_compute_fun(
     name="kappa_g",
     label="\\kappa_g",
     units="m^{-1}",
