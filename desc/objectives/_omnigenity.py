@@ -1029,6 +1029,13 @@ class NewOmnigenity(_Objective):
     _units = "(T)"
     _print_value_fmt = "New Omnigenity error: "
 
+    _static_attrs = _Objective._static_attrs + [
+        "_eq_data_keys",
+        "_field_data_keys",
+        "_eq_fixed",
+        "_field_fixed",
+        "_helicity",
+    ]
     def __init__(
         self,
         eq,
@@ -1420,6 +1427,13 @@ class OmniSymmetry(_Objective):
     _units = "rad"
     _print_value_fmt = "Omni-Mapping Symmetry error: "
 
+    _static_attrs = _Objective._static_attrs + [
+        "_eq_data_keys",
+        "_field_data_keys",
+        "_eq_fixed",
+        "_field_fixed",
+        "_helicity",
+    ]
     def __init__(
         self,
         eq,
@@ -1571,7 +1585,7 @@ class OmniSymmetry(_Objective):
                 profiles=self._constants["eq_profiles"],
             )
             self._constants["eq_data"] = eq_data
-            
+
         self._dim_f = field_transforms["h"].grid.num_nodes
 
         timer.stop("Precomputing transforms")
